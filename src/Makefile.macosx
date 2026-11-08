@@ -1,149 +1,175 @@
 #
-# Makefile for macOS
+# Makefile for macOS (Apple Silicon or Intel)
+#
+# GLFW, Boron & Faun are compiled from the src/glfw, src/boron & src/faun
+# Git submodules (git submodule update --init).  Their objects go in src/obj
+# so the submodule checkouts stay clean.  The Boron interpreter used to pack
+# the game modules is also built here (obj/bin/boron).
+#
+# libpng & libvorbis come from Homebrew (brew install libpng libvorbis).
+# Their static libraries are linked so XU4.app runs on Macs without Homebrew.
 #
 
 -include ../make.config
 
-# if you use MacPorts or fink and want to use that change the PREFIX
-# to /opt/local for macports and /sw for Fink
-PREFIX ?= /usr
+UI    = glfw
+SOUND = faun
+GPU  ?= scale
 
-UI ?= sdl
-CONF=xml
+BREW ?= $(firstword $(wildcard /opt/homebrew /usr/local))
+OBJ   = obj
 
-# system info
-OSX_VERSION=$(shell sw_vers -productVersion | cut -f 1,2 -d . -)
+.DEFAULT_GOAL := xu4
 
-# name and path to ultima4.zip and u4upgrad.zip
-ULTIMA4=ultima4*.zip
-U4UPGRADE=u4upgrad.zip
-
-# for crosscompiling arch ppc or i386 from OS X 10.6 use 
-# CC=/usr/bin/gcc-4.0
-# CXX=/usr/bin/g++-4.0
-CC=gcc
-CXX=g++
-
-UILIBS=-L/Library/Frameworks \
-	-framework Cocoa \
-	-framework SDL \
-	-framework SDL_mixer \
-	-framework libpng
-	
-UIFLAGS=-F/Library/Frameworks \
-	-I/Library/Frameworks/SDL.framework/Headers \
-	-I/Library/Frameworks/SDL_mixer.framework/Headers \
-	-I/Library/Frameworks/libpng.framework/Headers \
-	-I$(PREFIX)/include
-
-FEATURES=-DHAVE_BACKTRACE=0 -DHAVE_VARIADIC_MACROS=1
-
-# Debugging
-DEBUGCXXFLAGS=-ggdb
-# Optimising
-#DEBUGCXXFLAGS=-O2 -mdynamic-no-pic
-
-ifeq ($(OSX_VERSION), 10.5)
-SYSROOT='-isysroot /Developer/SDKs/MacOSX10.5.sdk'
+SUBMODULE_FILES = glfw/src/init.c boron/eval/boron.c faun/faun.c
+ifneq ($(filter-out $(wildcard $(SUBMODULE_FILES)),$(SUBMODULE_FILES)),)
+$(error Submodules are missing.  Run: git submodule update --init)
 endif
-ifeq ($(OSX_VERSION), 10.6)
-SYSROOT='-isysroot /Developer/SDKs/MacOSX10.6.sdk'
+
+# Homebrew's static libraries target the macOS release they were built on.
+MACOSX_DEPLOYMENT_TARGET ?= 26.0
+export MACOSX_DEPLOYMENT_TARGET
+MINVER = -mmacosx-version-min=$(MACOSX_DEPLOYMENT_TARGET)
+
+CC  = clang
+CXX = clang++
+
+OPT = -O2 -DNDEBUG
+#OPT = -g -DDEBUG
+
+DEFS = -DUSE_BORON -DCONF_MODULE -DUSE_GL -DVERSION=\"$(VERSION)\"
+ifeq ($(GPU),all)
+DEFS += -DGPU_RENDER
 endif
-# in 10.7 and higher, sysroot isn't needed
-SYSROOT=
 
-# for crosscompiling arch ppc or i386 from OS X 10.6 uncomment this line
-# SYSROOT='-isysroot /Developer/SDKs/MacOSX10.4u.sdk -mmacosx-version-min=10.4'
+INCS = -I. -Isupport -Ifaun -Iglfw/include -I$(OBJ)/include \
+       -I$(BREW)/opt/libpng/include -I$(BREW)/opt/libvorbis/include \
+       -I$(BREW)/opt/libogg/include
 
-# for crosscompiling from OS X 10.6 set the arch
-# SPECIFIC_ARCH=-arch i386 
-# SPECIFIC_ARCH=-arch ppc
-SPECIFIC_ARCH=
+CFLAGS   = -Wall -Wno-unused-parameter $(OPT) $(INCS) $(DEFS) $(MINVER)
+CXXFLAGS = $(CFLAGS)
+
+# Some Command Line Tools updates leave a stale, partial libc++ header
+# directory in the toolchain that hides the complete one in the SDK.
+SDKROOT ?= $(shell xcrun --show-sdk-path 2>/dev/null)
+TOOLCHAIN_CXX_INC := $(dir $(shell xcrun -f clang++ 2>/dev/null))../include/c++/v1
+ifeq ($(wildcard $(TOOLCHAIN_CXX_INC)/vector),)
+ifneq ($(wildcard $(SDKROOT)/usr/include/c++/v1/vector),)
+CXXFLAGS += -nostdinc++ -isystem $(SDKROOT)/usr/include/c++/v1
+endif
+endif
+
+# Prefer a static library; fall back to a shared one.
+# $(call staticlib,<archive path>,<fallback link flags>)
+staticlib = $(or $(wildcard $(1)),$(2))
+
+PNG_LIB    = $(call staticlib,$(BREW)/opt/libpng/lib/libpng16.a,-lpng)
+VORBIS_LIB = $(call staticlib,$(BREW)/opt/libvorbis/lib/libvorbisfile.a,-lvorbisfile) \
+             $(call staticlib,$(BREW)/opt/libvorbis/lib/libvorbis.a,-lvorbis) \
+             $(call staticlib,$(BREW)/opt/libogg/lib/libogg.a,-logg)
+
+FRAMEWORKS = -framework Cocoa -framework IOKit -framework CoreFoundation \
+             -framework CoreVideo -framework OpenGL \
+             -framework AudioToolbox -framework CoreAudio
+
+LIBS = $(PNG_LIB) $(VORBIS_LIB) -lz -lm $(FRAMEWORKS)
 
 
-CXXFLAGS=$(FEATURES) -Wall -I. -Isupport $(UIFLAGS) $(shell xml2-config --cflags) -DVERSION=\"$(VERSION)\" $(DEBUGCXXFLAGS) -DNPERF -DMACOSX -DMACOSX_USER_FILES_PATH=\"/Library/Application\ Support/xu4\" -no-cpp-precomp -L$(PREFIX)/lib $(SYSROOT) $(SPECIFIC_ARCH)
-CFLAGS=$(CXXFLAGS)
-LIBS=-lxml2 -lz -lpthread -licucore -lm $(UILIBS) -lobjc $(SPECIFIC_ARCH)
+#---------------------------------------------------------------------------
+# GLFW (Cocoa backend)
 
-INSTALL=install
+GLFW_SRC = context.c init.c input.c monitor.c platform.c vulkan.c window.c \
+           egl_context.c osmesa_context.c null_init.c null_monitor.c \
+           null_window.c null_joystick.c cocoa_time.c posix_module.c \
+           posix_thread.c cocoa_init.m cocoa_joystick.m cocoa_monitor.m \
+           cocoa_window.m nsgl_context.m
+GLFW_OBJS  = $(addprefix $(OBJ)/glfw/,$(addsuffix .o,$(basename $(GLFW_SRC))))
+GLFW_FLAGS = -O2 -D_GLFW_COCOA -Iglfw/include $(MINVER)
 
-OBJS=macosx/SDLMain.o macosx/osxinit.o macosx/osxerror.o
+$(OBJ)/glfw/%.o: glfw/src/%.c | $(OBJ)/glfw
+	$(CC) -c $(GLFW_FLAGS) $< -o $@
+
+$(OBJ)/glfw/%.o: glfw/src/%.m | $(OBJ)/glfw
+	$(CC) -c $(GLFW_FLAGS) $< -o $@
+
+
+#---------------------------------------------------------------------------
+# Boron (configured as xu4's dist/Makefile does: no execute or socket,
+# static, threads)
+
+BORON_CONFIG = -DCONFIG_CHECKSUM -DCONFIG_COMPRESS=1 -DCONFIG_HASHMAP \
+               -DCONFIG_RANDOM -DCONFIG_LINENOISE -DCONFIG_STATIC \
+               -DCONFIG_THREAD
+BORON_FLAGS  = -std=c99 -O3 -DNDEBUG -Iboron/include -Iboron/urlan \
+               -Iboron/eval -Iboron/support $(BORON_CONFIG) $(MINVER)
+
+BORON_SRC = urlan/env.c urlan/array.c urlan/binary.c urlan/block.c \
+            urlan/coord.c urlan/date.c urlan/path.c urlan/string.c \
+            urlan/context.c urlan/gc.c urlan/serialize.c urlan/tokenize.c \
+            urlan/vector.c urlan/parse_block.c urlan/parse_string.c \
+            urlan/hashmap.c support/str.c support/mem_util.c \
+            support/quickSortIndex.c support/fpconv.c support/well512.c \
+            unix/os.c eval/boron.c eval/port_file.c eval/wait.c \
+            eval/random.c eval/port_thread.c
+BORON_OBJS = $(addprefix $(OBJ)/boron/,$(notdir $(BORON_SRC:.c=.o)))
+BORON_EXE_OBJS = $(OBJ)/boron/main.o $(OBJ)/boron/linenoise.o
+
+# Headers are copied so they can be included as <boron/boron.h>.
+BORON_HDRS = $(addprefix $(OBJ)/include/boron/,boron.h urlan.h urlan_atoms.h)
+
+$(OBJ)/boron/%.o: boron/urlan/%.c | $(OBJ)/boron
+	$(CC) -c $(BORON_FLAGS) $< -o $@
+
+$(OBJ)/boron/%.o: boron/support/%.c | $(OBJ)/boron
+	$(CC) -c $(BORON_FLAGS) $< -o $@
+
+$(OBJ)/boron/%.o: boron/eval/%.c | $(OBJ)/boron
+	$(CC) -c $(BORON_FLAGS) $< -o $@
+
+$(OBJ)/boron/%.o: boron/unix/%.c | $(OBJ)/boron
+	$(CC) -c $(BORON_FLAGS) $< -o $@
+
+$(OBJ)/include/boron/%.h: boron/include/%.h | $(OBJ)/include/boron
+	cp $< $@
+
+# The interpreter program used by ../Makefile to pack modules.
+$(OBJ)/bin/boron: $(BORON_EXE_OBJS) $(BORON_OBJS) | $(OBJ)/bin
+	$(CC) $(MINVER) $^ -o $@ -lz -lm
+
+
+#---------------------------------------------------------------------------
+# Faun (CoreAudio backend)
+
+FAUN_OBJS  = $(OBJ)/faun/faun.o $(OBJ)/faun/tmsg.o
+FAUN_FLAGS = -Wall -W -O2 -DNDEBUG -DUSE_LOAD_MEM -DUSE_SFX_GEN \
+             -Ifaun/support -I$(BREW)/opt/libvorbis/include \
+             -I$(BREW)/opt/libogg/include $(MINVER)
+
+$(OBJ)/faun/faun.o: faun/faun.c faun/sys_coreaudio.c faun/internal.h \
+                    faun/faun.h | $(OBJ)/faun
+	$(CC) -c $(FAUN_FLAGS) $< -o $@
+
+$(OBJ)/faun/tmsg.o: faun/support/tmsg.c faun/support/tmsg.h | $(OBJ)/faun
+	$(CC) -c $(FAUN_FLAGS) $< -o $@
+
+
+#---------------------------------------------------------------------------
+# XU4
+
+OBJS = macosx/osxerror.o $(FAUN_OBJS) $(GLFW_OBJS) $(BORON_OBJS)
+
 include Makefile.common
 
-macosx/SDLMain.o: macosx/SDLMain.m macosx/SDLMain.h
-	$(CC) $(CXXFLAGS) -c -o macosx/SDLMain.o macosx/SDLMain.m
+# Sources include <boron/boron.h>.
+$(OBJS): | $(BORON_HDRS)
 
-macosx/osxerror.o: macosx/osxerror.mm
-	$(CC) $(CXXFLAGS) -c -o macosx/osxerror.o macosx/osxerror.mm 
+macosx/osxerror.o: macosx/osxerror.mm error.h
+	$(CXX) $(CXXFLAGS) -fobjc-arc -c -o $@ $<
 
-macosx/osxinit.o: macosx/osxinit.cpp
-	$(CXX) $(CXXFLAGS) -c -o macosx/osxinit.o macosx/osxinit.cpp
+$(OBJ)/glfw $(OBJ)/boron $(OBJ)/faun $(OBJ)/bin $(OBJ)/include/boron:
+	mkdir -p $@
 
-mactlkconv: util/tlkconv.o
-	$(CXX) $(CXXFLAGS) -o tlkconv util/tlkconv.o -L/Library/Frameworks
+clean::
+	rm -rf $(OBJ)
 
-bundle_name=XU4.app
-
-bundle: u4
-	mkdir -p $(bundle_name)/Contents/MacOS
-	mkdir -p $(bundle_name)/Contents/Resources
-	mkdir -p $(bundle_name)/Contents/Resources/dtd
-	mkdir -p $(bundle_name)/Contents/Resources/ega
-	mkdir -p $(bundle_name)/Contents/Resources/fmtowns
-	mkdir -p $(bundle_name)/Contents/Resources/hires
-	mkdir -p $(bundle_name)/Contents/Resources/new
-	mkdir -p $(bundle_name)/Contents/Resources/png
-	mkdir -p $(bundle_name)/Contents/Resources/vga
-	mkdir -p $(bundle_name)/Contents/Resources/vga2
-	echo "APPL????" > $(bundle_name)/Contents/PkgInfo
-	cp macosx/Info.plist $(bundle_name)/Contents
-	cp ../mid/*.* $(bundle_name)/Contents/Resources
-	cp ../sound/*.ogg $(bundle_name)/Contents/Resources
-	cp ../conf/*.xml $(bundle_name)/Contents/Resources
-	cp ../conf/dtd/*.dtd $(bundle_name)/Contents/Resources/dtd
-	cp ../icons/xu4.icns $(bundle_name)/Contents/Resources
-	cp ../graphics/ega/*.png $(bundle_name)/Contents/Resources/ega
-	cp ../graphics/fmtowns/*.TIF $(bundle_name)/Contents/Resources/fmtowns
-	cp ../graphics/hires/*.png $(bundle_name)/Contents/Resources/hires
-	cp ../graphics/hires/*.vga $(bundle_name)/Contents/Resources/hires
-	cp ../graphics/new/*.png $(bundle_name)/Contents/Resources/new
-	cp ../graphics/png/*.png $(bundle_name)/Contents/Resources/png
-	cp ../graphics/vga/*.png $(bundle_name)/Contents/Resources/vga
-	cp ../graphics/vga2/*.png $(bundle_name)/Contents/Resources/vga2
-	# if you want to include the ultima4.zip in the bundle uncomment the
-	# following line.
-	# cp $(ULTIMA4) $(bundle_name)/Contents/Resources
-	cp $(U4UPGRADE) $(bundle_name)/Contents/Resources
-	cp $< $(bundle_name)/Contents/MacOS
-	
-
-# This will make a disk image with the app bundle (and the needed text files)
-# The frameworks are copied into the bundle so the app bundle on the image
-# works on other macs
-osxdmg: bundle
-	mkdir -p $(bundle_name)/Contents/Frameworks
-	cp -R /Library/Frameworks/SDL.framework $(bundle_name)/Contents/Frameworks
-	cp -R /Library/Frameworks/SDL_mixer.framework $(bundle_name)/Contents/Frameworks
-	cp -R /Library/Frameworks/libpng.framework $(bundle_name)/Contents/Frameworks
-	mkdir -p xu4-MacOSXdmg
-	cp ../AUTHORS ./xu4-MacOSXdmg/Authors
-	cp ../COPYING ./xu4-MacOSXdmg/COPYING
-	cp ../README ./xu4-MacOSXdmg/ReadMe
-	cp ../doc/README.MacOSX ./xu4-MacOSXdmg/ReadMe.MacOSX
-	SetFile -t ttro -c ttxt ./xu4-MacOSXdmg/*
-	CpMac -r $(bundle_name) ./xu4-MacOSXdmg/
-	hdiutil create -ov -format UDZO -imagekey zlib-level=9 -fs HFS+ \
-					-srcfolder xu4-MacOSXdmg \
-					-volname "xu4-MacOSX" \
-					xu4-MacOSX.dmg
-	rm -rf xu4-MacOSXdmg
-
-install: bundle
-	cp -r $(bundle_name) /Applications/
-
-clean-local:
-	-rm -f xu4-MacOSX.dmg
-	-rm -rf $(bundle_name)
-		
 -include .depends
-

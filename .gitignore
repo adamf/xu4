@@ -1,0 +1,22 @@
+# Build products
+*.o
+src/xu4
+src/coord
+src/dumpmap
+src/dumpsavegame
+src/tlkconv
+src/u4dec
+src/u4enc
+src/u4unpackexe
+make.config
+project.config
+render.pak
+*.mod
+XU4.app/
+
+# Downloaded game archives
+ultima4*.zip
+u4upgrad.zip
+
+# GLFW, Boron & Faun objects (macOS build)
+src/obj/

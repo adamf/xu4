@@ -3,7 +3,7 @@
 	url = https://git.code.sf.net/p/outguard/glv
 [submodule "src/faun"]
 	path = src/faun
-	url = https://codeberg.org/wickedsmoke/faun.git
+	url = https://github.com/adamf/faun.git
 [submodule "src/glfw"]
 	path = src/glfw
 	url = https://github.com/glfw/glfw.git
