@@ -1,15 +1,34 @@
+/*
+ * macOS error reporting: messages go to stderr, and fatal errors are also
+ * shown in an alert panel since a Finder-launched app has no console.
+ */
+
 #include <cstdio>
 #include <cstdarg>
 #include <cstdlib>
 
-/*
- * MacOS X: errors shown in alert panel
- */
-#ifdef MACOSX
 #import <Cocoa/Cocoa.h>
-#else
-#import <UIKit/UIKit.h>
-#endif
+
+#include "error.h"
+
+static void showAlert(const char* title, const char* message,
+                      NSAlertStyle style)
+{
+    @autoreleasepool {
+        // The alert can appear before GLFW has created the application.
+        [NSApplication sharedApplication];
+        [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+        [NSApp activateIgnoringOtherApps:YES];
+
+        NSAlert* alert = [[NSAlert alloc] init];
+        alert.alertStyle = style;
+        alert.messageText = [NSString stringWithUTF8String:title];
+        NSString* info = [NSString stringWithUTF8String:message];
+        alert.informativeText = info ? info : @"";
+        [alert addButtonWithTitle:@"OK"];
+        [alert runModal];
+    }
+}
 
 void errorFatal(const char *fmt, ...) {
     char buffer[1000];
@@ -19,15 +38,9 @@ void errorFatal(const char *fmt, ...) {
     vsnprintf(buffer, sizeof(buffer), fmt, args);
     va_end(args);
 
-#ifdef MACOSX
-    NSRunCriticalAlertPanel(@"XU4 Error", [NSString stringWithCString:buffer encoding:NSUTF8StringEncoding], @"OK", NULL, NULL);
+    fprintf(stderr, "xu4 error: %s\n", buffer);
+    showAlert("XU4 Error", buffer, NSAlertStyleCritical);
     exit(1);
-#else
-    UIAlertView *alert = [[[UIAlertView alloc] initWithTitle:@"Ultima4 iPad"
-                                                    message:[NSString stringWithCString:buffer encoding:NSUTF8StringEncoding]
-                              delegate:nil cancelButtonTitle:nil otherButtonTitles:nil] autorelease];
-    [alert show];    
-#endif
 }
 
 void errorWarning(const char *fmt, ...) {
@@ -37,14 +50,8 @@ void errorWarning(const char *fmt, ...) {
     va_start(args, fmt);
     vsnprintf(buffer, sizeof(buffer), fmt, args);
     va_end(args);
-#ifdef MACOSX
-    NSRunAlertPanel(@"XU4 Error", [NSString stringWithCString:buffer encoding:NSUTF8StringEncoding], @"OK", NULL, NULL);
-#else
-    UIAlertView *alert = [[[UIAlertView alloc] initWithTitle:@"Ultima4 iPad"
-                                                    message:[NSString stringWithCString:buffer encoding:NSUTF8StringEncoding]
-                                                   delegate:nil cancelButtonTitle:nil otherButtonTitles:nil] autorelease];
-    [alert show];    
-#endif
+
+    // Warnings can come in bursts (e.g. missing tile images), so they are
+    // not shown in a modal panel.
+    fprintf(stderr, "xu4 warning: %s\n", buffer);
 }
-
-

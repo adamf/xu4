@@ -40,10 +40,10 @@ void errorWarning(const char *fmt, ...) {
     MessageBox(NULL, buffer, "XU4 Warning", MB_OK | MB_ICONWARNING);
 }
 
-#elif defined(MACOSX)
+#elif defined(__APPLE__)
 
 /*
- * MacOS X: errors functios defined in objective-c code elsewhere.
+ * macOS: error functions are defined in macosx/osxerror.mm.
  */
 
 #elif GTK2_DIALOGS

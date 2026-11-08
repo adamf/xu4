@@ -1,5 +1,8 @@
 #ifdef __APPLE__
-#include <OpenGL/gl.h>
+// macOS only exposes OpenGL 3.2+ (VAOs, GLSL 330) through the core profile
+// header.  OpenGL is deprecated there but still fully functional.
+#define GL_SILENCE_DEPRECATION
+#include <OpenGL/gl3.h>
 #elif defined(__ANDROID__)
 #include <GLES3/gl31.h>
 #elif defined(_WIN32)

@@ -4,3 +4,9 @@
 [submodule "src/faun"]
 	path = src/faun
 	url = https://codeberg.org/wickedsmoke/faun.git
+[submodule "src/glfw"]
+	path = src/glfw
+	url = https://github.com/glfw/glfw.git
+[submodule "src/boron"]
+	path = src/boron
+	url = https://git.code.sf.net/p/urlan/boron/code

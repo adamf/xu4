@@ -811,7 +811,7 @@ bool EventHandler::globalKeyHandler(int key) {
         xu4.eventHandler->togglePause();
         return true;
 
-#if defined(MACOSX)
+#if defined(__APPLE__)
     case U4_META + 'q': /* Cmd+q */
     case U4_META + 'x': /* Cmd+x */
 #endif

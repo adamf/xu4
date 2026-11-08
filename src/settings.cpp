@@ -17,8 +17,6 @@ extern "C" const char* androidInternalData();
 #elif defined(_WIN32) || defined(__CYGWIN__)
 #include <windows.h>
 #include <shlobj.h>
-#elif defined(MACOSX)
-#include <CoreServices/CoreServices.h>
 #elif defined(IOS)
 #include <CoreFoundation/CoreFoundation.h>
 #include "U4CFHelper.h"
@@ -69,28 +67,13 @@ void Settings::init(const char* profileName) {
 #if defined(ANDROID)
         userPath = androidInternalData();
         userPath += '/';
-#elif defined(MACOSX)
-            FSRef folder;
-            OSErr err = FSFindFolder(kUserDomain, kApplicationSupportFolderType, kCreateFolder, &folder);
-            if (err == noErr) {
-                UInt8 path[2048];
-                if (FSRefMakePath(&folder, path, 2048) == noErr) {
-                    userPath.append(reinterpret_cast<const char *>(path));
-                    userPath.append("/xu4/");
-                }
-            }
-            if (userPath.empty()) {
-                char *home = getenv("HOME");
-                if (home && home[0]) {
-                    if (userPath.size() == 0) {
-                        userPath += home;
-                        userPath += "/.xu4";
-                        userPath += "/";
-                    }
-                } else {
-                    userPath = "./";
-                }
-            }
+#elif defined(__APPLE__)
+        char *home = getenv("HOME");
+        if (home && home[0]) {
+            userPath += home;
+            userPath += "/Library/Application Support/xu4/";
+        } else
+            userPath = "./";
 #elif defined(IOS)
         boost::intrusive_ptr<CFURL> urlForLocation = cftypeFromCreateOrCopy(U4IOS::copyAppSupportDirectoryLocation());
         if (urlForLocation != 0) {

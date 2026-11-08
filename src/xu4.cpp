@@ -28,8 +28,10 @@
 extern "C" const char* androidInternalData();
 #endif
 
-#if defined(MACOSX)
-#include "macosx/osxinit.h"
+#ifdef __APPLE__
+#include <climits>
+#include <cstdlib>
+#include <mach-o/dyld.h>
 #endif
 
 #ifdef _WIN32
@@ -217,6 +219,20 @@ static void initResourcePaths(StringTable* st) {
     if (home && home[0]) {
 #ifdef __APPLE__
         sst_appendCon(st, home, "/Library/Application Support/xu4");
+
+        // When run from XU4.app, also search Contents/Resources.
+        {
+            char exe[PATH_MAX];
+            char real[PATH_MAX];
+            uint32_t size = sizeof(exe);
+            if (_NSGetExecutablePath(exe, &size) == 0 && realpath(exe, real)) {
+                char* end = strstr(real, ".app/Contents/MacOS/");
+                if (end) {
+                    strcpy(end, ".app/Contents/Resources");
+                    sst_append(st, real, -1);
+                }
+            }
+        }
 #else
         sst_appendCon(st, home, "/.local/share/xu4");
 #endif

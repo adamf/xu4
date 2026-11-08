@@ -17,6 +17,7 @@
 #include <assert.h>
 #include <stdlib.h>
 #include <string.h>
+#define GLFW_INCLUDE_NONE   // gpu_opengl.h has already included the GL header.
 #include <GLFW/glfw3.h>
 
 #define MAX_CURSORS 4
@@ -28,6 +29,7 @@ struct ScreenGLView {
     GLFWcursor* fwCursor[MAX_CURSORS];
     MouseCursor currentCursor;
     int winPos[2];      // Position used when going from fullscreen to window.
+    int pixelRatio;     // Framebuffer pixels per window unit (2 on Retina).
     bool winFullscreen;
 #if 0
     int     joyId;
@@ -260,8 +262,8 @@ static void mouseMotionHandler(GLFWwindow* win, double x, double y)
 
     ie.type = IE_MOUSE_MOVE;
     ie.state = 0;
-    ie.x = (int16_t) x;
-    ie.y = (int16_t) y;
+    ie.x = (int16_t) (x * SGL->pixelRatio);
+    ie.y = (int16_t) (y * SGL->pixelRatio);
 
     dispatchEvent(&ie);
 }
@@ -283,8 +285,8 @@ static void mouseButtonHandler(GLFWwindow* win, int button, int action,
     ie.state = 0;
 
     glfwGetCursorPos(win, &xpos, &ypos);
-    ie.x = (int16_t) xpos;
-    ie.y = (int16_t) ypos;
+    ie.x = (int16_t) (xpos * SGL->pixelRatio);
+    ie.y = (int16_t) (ypos * SGL->pixelRatio);
 
     dispatchEvent(&ie);
 }
@@ -348,6 +350,11 @@ void screenInit_sys(const Settings* settings, ScreenState* state, int reset)
     } else {
         xu4.screenSys = ss = (ScreenGLView*) calloc(1, sizeof(ScreenGLView));
 
+#ifdef __APPLE__
+        // Keep the working directory; relative profile paths depend on it.
+        // The bundle Resources directory is already a resource path.
+        glfwInitHint(GLFW_COCOA_CHDIR_RESOURCES, GLFW_FALSE);
+#endif
         if (! glfwInit()) {
             errorFatal("Unable to initialize GLFW");
         }
@@ -359,6 +366,10 @@ void screenInit_sys(const Settings* settings, ScreenState* state, int reset)
         glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
         glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
         glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+#ifdef __APPLE__
+        // macOS will only create a 3.2+ context if it is forward compatible.
+        glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
+#endif
 #endif
 
         ss->winFullscreen = settings->fullscreen;
@@ -416,7 +427,32 @@ void screenInit_sys(const Settings* settings, ScreenState* state, int reset)
     printf("KR dim %d,%d (%d,%d) %d\n",
             dw, dh, state->displayW, state->displayH, glfwGetError(NULL));
 #endif
-    scale = screenInitState(state, settings, dw, dh);
+#ifdef __APPLE__
+    // On Retina displays the framebuffer has more pixels than the window has
+    // screen units.  Render at full framebuffer resolution so the scaler
+    // shaders, not the window compositor, do the upscaling.
+    {
+        float sx, sy;
+        glfwGetWindowContentScale(ss->view, &sx, &sy);
+        ss->pixelRatio = (sx >= 1.5f) ? (int) (sx + 0.5f) : 1;
+    }
+#else
+    ss->pixelRatio = 1;
+#endif
+    scale = screenInitState(state, settings, dw * ss->pixelRatio,
+                                             dh * ss->pixelRatio);
+    if (ss->pixelRatio > 1 && ! settings->fullscreen) {
+        // screenInitState() returned the window scale; convert to pixels.
+        scale *= ss->pixelRatio;
+        if (settings->filter == FILTER_HQX && scale > 4) {
+            // HQX is limited to 4x; center the image in the window.
+            scale = 4;
+            state->aspectW = U4_SCREEN_W * scale;
+            state->aspectH = U4_SCREEN_H * scale;
+            state->aspectX = (state->displayW - state->aspectW) / 2;
+            state->aspectY = (state->displayH - state->aspectH) / 2;
+        }
+    }
 
     /* enable or disable the mouse cursor */
     screenShowMouseCursor(settings->mouseOptions.enabled);
