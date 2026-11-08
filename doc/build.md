@@ -14,7 +14,7 @@ Here is the status of build systems for various target OSes:
 | Target  | make   | copr    | cbuild |
 | ------- | ------ | ------- | ------ |
 | Linux   | OK     | OK      | OK     |
-| macOS   | src/Makefile.macosx not up to date | Unknown | Not supported |
+| macOS   | OK     | Unknown | Not supported |
 | Windows | src/Makefile.mingw not up to date  | OK | OK |
 
 
@@ -72,6 +72,20 @@ source is also available via the src/faun Git submodule:
     cd src/faun
     ./configure --no_flac && make
     sudo make DESTDIR=/usr install
+
+### macOS
+
+GLFW, Boron, & Faun are built from the src/glfw, src/boron, & src/faun Git
+submodules, so only libpng & libvorbis need to be installed (via [Homebrew]).
+Xcode or the Command Line Tools must be installed.
+
+    git submodule update --init
+    brew install libpng libvorbis
+    make app
+
+This creates `XU4.app`, which `make install-app` copies to /Applications.
+Ultima IV itself is not included in the app; put `ultima4.zip` (or an
+`ultima4` folder) in `~/Library/Application Support/xu4`.
 
 ### configure
 
@@ -173,5 +187,6 @@ using the cbuild `-b` option after the target.
 
 [GNU Make]: https://www.gnu.org/software/make/manual/html_node/index.html#toc-Overview-of-make
 [Copr]: http://urlan.sourceforge.io/copr.html
+[Homebrew]: https://brew.sh
 [Podman]: https://podman.io/getting-started/installation
 [Docker]: https://docs.docker.com/get-docker/

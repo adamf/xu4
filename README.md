@@ -67,6 +67,12 @@ To build the binary on Linux use these commands:
 If the required libraries & headers are present, make will create the
 executable `src/xu4`.
 
+On macOS use these commands to build `XU4.app`:
+
+    git submodule update --init
+    brew install libpng libvorbis
+    make app
+
 For more detailed build instructions see [doc/build.md](doc/build.md).
 
 
@@ -89,6 +95,7 @@ out of the zipfile.  To use it select the U4-Upgrade module.
 XU4 searches for data, modules and zipfiles in the following places:
  - The current directory when xu4 is run
  - On Linux: `$HOME/.local/share/xu4`, `/usr/share/xu4` & `/usr/local/share/xu4`
+ - On macOS: `$HOME/Library/Application Support/xu4` & `XU4.app/Contents/Resources`
  - On Windows: `%LOCALAPPDATA%\xu4`
 
 The DOS game zipfiles (ultima4.zip & u4upgrad.zip) don't need to be unpacked,
@@ -98,7 +105,8 @@ but if they are the contents may be in a subdirectory named `ultima4` or `u4`.
 
 At the title screen, a configuration menu can be accessed by pressing
 'c'.  Here, the screen scale, filter, volume and other settings can be
-modified.  These settings are stored in `$HOME/.config/xu4/xu4rc` on Linux
+modified.  These settings are stored in `$HOME/.config/xu4/xu4rc` on Linux,
+`$HOME/Library/Application Support/xu4/xu4rc` on macOS,
 and `%APPDATA%\xu4\xu4.cfg` on Windows.
 
 The saved game files are stored in the settings directory.
